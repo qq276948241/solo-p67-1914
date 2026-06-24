@@ -101,7 +101,10 @@ export function tryAssignNoiseTargetToDog(
   now: number,
 ): boolean {
   if (hasActiveInvestigation(dog, now)) return false;
-  if (dog.state !== 'idle' && !(dog.state === 'chase' && !dog.investigateTarget)) {
+  if (dog.state !== 'idle' && dog.state !== 'chase' && dog.state !== 'cooldown') {
+    return false;
+  }
+  if (dog.state === 'chase' && dog.investigateTarget) {
     return false;
   }
 
@@ -111,7 +114,7 @@ export function tryAssignNoiseTargetToDog(
   dog.investigateTarget = { x: target.pos.x, y: target.pos.y };
   dog.investigatePriorityUntil = target.priorityUntil;
 
-  if (dog.state === 'idle') {
+  if (dog.state === 'idle' || dog.state === 'cooldown') {
     dog.state = 'chase';
   }
   return true;
