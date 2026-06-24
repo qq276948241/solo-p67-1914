@@ -59,3 +59,11 @@ export const ITEM_COLORS: Record<ItemType, string> = {
   can: '#bdc3c7',
   cloth: '#95a5a6',
 };
+
+export const NOISE_LOOT_RADIUS = 380;
+export const NOISE_LOOT_DURATION = 2500;
+export const NOISE_BUILD_RADIUS = 260;
+export const NOISE_BUILD_DURATION = 1800;
+export const NOISE_LOUDNESS_BASE = 1.0;
+export const DOG_HEARING_SENSITIVITY = 1.2;
+export const NOISE_INVESTIGATE_PRIORITY_MS = 4000;

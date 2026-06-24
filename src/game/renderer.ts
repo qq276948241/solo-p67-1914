@@ -83,6 +83,7 @@ export class GameRenderer {
     this.drawNightOverlay(state, now);
     ctx.save();
     ctx.translate(-Math.floor(this.camera.x) + shakeX, -Math.floor(this.camera.y) + shakeY);
+    this.drawNoises(state, now);
     this.drawFloatMessages(state, now);
     ctx.restore();
   }
@@ -463,6 +464,21 @@ export class GameRenderer {
       ctx.fillRect(dx - 2, dy - 8, hpBarW, 4);
       ctx.fillStyle = hpPct > 0.5 ? '#4caf50' : hpPct > 0.25 ? '#ff9800' : '#f44336';
       ctx.fillRect(dx - 1, dy - 7, Math.floor((hpBarW - 2) * hpPct), 2);
+
+      if (dog.investigateTarget && now < dog.investigatePriorityUntil) {
+        const ex = dx + 6;
+        const ey = dy - 18;
+        const wobble = Math.sin(now / 120) * 1.5;
+        ctx.save();
+        ctx.fillStyle = '#f1c40f';
+        ctx.globalAlpha = 0.85;
+        for (let w = 0; w < 3; w++) {
+          const wy = ey - w * 4 + wobble;
+          const ww = 6 + w * 3;
+          ctx.fillRect(Math.floor(ex - ww / 2), Math.floor(wy), ww, 2);
+        }
+        ctx.restore();
+      }
     }
   }
 
@@ -661,6 +677,64 @@ export class GameRenderer {
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     ctx.restore();
+  }
+
+  private drawNoises(state: GameStateData, now: number): void {
+    const ctx = this.ctx;
+
+    for (const noise of state.noises) {
+      const age = now - noise.startTime;
+      if (age < 0 || age > noise.duration) continue;
+
+      const t = age / noise.duration;
+      const radius = noise.maxRadius * (0.25 + 0.75 * Math.min(1, t * 1.6));
+      const alpha = (1 - t) * 0.55;
+
+      const ringCount = noise.type === 'loot' ? 3 : 2;
+      const baseColor = noise.type === 'loot' ? '241, 196, 15' : '46, 204, 113';
+
+      for (let i = 0; i < ringCount; i++) {
+        const ringT = (t - i * 0.2) / (1 - i * 0.2);
+        if (ringT < 0 || ringT > 1) continue;
+        const ringRadius = radius * (0.4 + ringT * 0.6);
+        const ringAlpha = alpha * (1 - ringT * 0.6);
+        const lineWidth = noise.type === 'loot' ? 3 : 2;
+
+        ctx.save();
+        ctx.globalAlpha = ringAlpha;
+        ctx.strokeStyle = `rgba(${baseColor}, ${ringAlpha})`;
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        ctx.arc(Math.floor(noise.pos.x), Math.floor(noise.pos.y), Math.floor(ringRadius), 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (i === 0 && ringT < 0.7) {
+          const pulseR = ringRadius * 0.6;
+          ctx.globalAlpha = ringAlpha * 0.3;
+          ctx.fillStyle = `rgba(${baseColor}, 0.15)`;
+          ctx.beginPath();
+          ctx.arc(Math.floor(noise.pos.x), Math.floor(noise.pos.y), Math.floor(pulseR), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      if (t < 0.25) {
+        ctx.save();
+        const iconAlpha = 1 - t * 4;
+        ctx.globalAlpha = iconAlpha;
+        ctx.fillStyle = noise.type === 'loot' ? '#f1c40f' : '#2ecc71';
+        const iconSize = 6 + (1 - t * 4) * 4;
+        const iy = noise.pos.y - radius * 0.5 - 10 - (1 - t * 4) * 8;
+        ctx.beginPath();
+        for (let w = 0; w < 3; w++) {
+          const wy = iy - w * 4;
+          const ww = 8 + w * 4;
+          ctx.fillRect(Math.floor(noise.pos.x - ww / 2), Math.floor(wy), ww, 2);
+        }
+        ctx.restore();
+      }
+    }
   }
 
   private drawFloatMessages(state: GameStateData, now: number): void {

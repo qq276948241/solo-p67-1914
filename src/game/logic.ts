@@ -26,6 +26,13 @@ import {
   DOG_SPEED,
   DOG_ATTACK_RANGE,
   DOG_COOLDOWN,
+  NOISE_LOOT_RADIUS,
+  NOISE_LOOT_DURATION,
+  NOISE_BUILD_RADIUS,
+  NOISE_BUILD_DURATION,
+  NOISE_LOUDNESS_BASE,
+  DOG_HEARING_SENSITIVITY,
+  NOISE_INVESTIGATE_PRIORITY_MS,
 } from './constants';
 import {
   addItem,
@@ -48,6 +55,25 @@ function pushFloatMessage(state: GameStateData, text: string, now: number, color
     pos: { x: state.player.pos.x, y: state.player.pos.y - 30 },
     startTime: now,
     color,
+  });
+}
+
+function pushNoise(
+  state: GameStateData,
+  pos: { x: number; y: number },
+  type: 'loot' | 'build',
+  now: number,
+): void {
+  const maxRadius = type === 'loot' ? NOISE_LOOT_RADIUS : NOISE_BUILD_RADIUS;
+  const duration = type === 'loot' ? NOISE_LOOT_DURATION : NOISE_BUILD_DURATION;
+  state.noises.push({
+    id: uid(),
+    pos: { x: pos.x, y: pos.y },
+    startTime: now,
+    duration,
+    maxRadius,
+    loudness: NOISE_LOUDNESS_BASE,
+    type,
   });
 }
 
@@ -112,6 +138,36 @@ const BUILDING_NAMES: Record<BuildingType, string> = {
   campfire: '篝火',
   water_purifier: '净水器',
 };
+
+function findLoudestNoiseForDog(
+  state: GameStateData,
+  dogPos: { x: number; y: number },
+  now: number,
+): { pos: { x: number; y: number }; priorityUntil: number } | null {
+  let best: typeof state.noises[0] | null = null;
+  let bestAttraction = 0;
+  for (const noise of state.noises) {
+    const age = now - noise.startTime;
+    if (age >= noise.duration) continue;
+    const agePct = age / noise.duration;
+    const currentRadius = noise.maxRadius * (0.3 + 0.7 * Math.min(1, agePct * 1.5));
+    const d = dist(dogPos, noise.pos);
+    if (d > currentRadius * DOG_HEARING_SENSITIVITY) continue;
+    const attenuation = 1 - d / (currentRadius * DOG_HEARING_SENSITIVITY);
+    const attraction = noise.loudness * attenuation * (1 - agePct * 0.5);
+    if (attraction > bestAttraction) {
+      bestAttraction = attraction;
+      best = noise;
+    }
+  }
+  if (best) {
+    return {
+      pos: best.pos,
+      priorityUntil: now + NOISE_INVESTIGATE_PRIORITY_MS,
+    };
+  }
+  return null;
+}
 
 export function updateGame(state: GameStateData, input: InputManager, now: number): void {
   const player = state.player;
@@ -206,6 +262,7 @@ export function updateGame(state: GameStateData, input: InputManager, now: numbe
         }
       }
       nearestResource.looted = true;
+      pushNoise(state, nearestResource.pos, 'loot', now);
       for (const [item, n] of Object.entries(got)) {
         pushFloatMessage(state, `获得${ITEM_NAMES[item as ItemType]} x${n}`, now, '#f39c12');
       }
@@ -217,6 +274,7 @@ export function updateGame(state: GameStateData, input: InputManager, now: numbe
           if (buildType) {
             consumeBuildMaterials(player.inventory, buildType);
             nearestSpot.building = buildType;
+            pushNoise(state, nearestSpot.pos, 'build', now);
             if (buildType === 'campfire') {
               nearestSpot.campfireLit = true;
               nearestSpot.campfireFuelUntil = now + CAMPFIRE_FUEL_PER_WOOD_MS * 1;
@@ -280,15 +338,45 @@ export function updateGame(state: GameStateData, input: InputManager, now: numbe
 
   // 8. 野狗AI
   for (const dog of state.dogs) {
+    if (dog.investigatePriorityUntil > 0 && now >= dog.investigatePriorityUntil) {
+      dog.investigateTarget = null;
+      dog.investigatePriorityUntil = 0;
+    }
+    if (dog.state === 'idle' || (dog.state === 'chase' && !dog.investigateTarget)) {
+      const noiseTarget = findLoudestNoiseForDog(state, dog.pos, now);
+      if (noiseTarget) {
+        dog.investigateTarget = { x: noiseTarget.pos.x, y: noiseTarget.pos.y };
+        dog.investigatePriorityUntil = noiseTarget.priorityUntil;
+        if (dog.state === 'idle') {
+          dog.state = 'chase';
+        }
+      }
+    }
+
+    const targetPos = (dog.investigateTarget && now < dog.investigatePriorityUntil)
+      ? dog.investigateTarget
+      : player.pos;
+
     const toPlayer = {
-      x: player.pos.x - dog.pos.x,
-      y: player.pos.y - dog.pos.y,
+      x: targetPos.x - dog.pos.x,
+      y: targetPos.y - dog.pos.y,
     };
     const d = Math.sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y);
 
+    const toRealPlayer = {
+      x: player.pos.x - dog.pos.x,
+      y: player.pos.y - dog.pos.y,
+    };
+    const dReal = Math.sqrt(toRealPlayer.x * toRealPlayer.x + toRealPlayer.y * toRealPlayer.y);
+
+    if (dog.investigateTarget && d < 40) {
+      dog.investigateTarget = null;
+      dog.investigatePriorityUntil = 0;
+    }
+
     switch (dog.state) {
       case 'idle':
-        if (d <= DOG_SNIFF_RANGE) {
+        if (dReal <= DOG_SNIFF_RANGE) {
           dog.state = 'chase';
         }
         break;
@@ -305,9 +393,15 @@ export function updateGame(state: GameStateData, input: InputManager, now: numbe
             dog.facing = ny > 0 ? 'down' : 'up';
           }
         }
-        if (d <= DOG_ATTACK_RANGE) {
+        if (dReal <= DOG_ATTACK_RANGE && !dog.investigateTarget) {
           dog.state = 'windup';
           dog.stateUntil = now + DOG_WINDUP_TIME;
+        } else if (dReal <= DOG_SNIFF_RANGE && !dog.investigateTarget) {
+          // 已经在追，什么都不做
+        } else if (dog.investigateTarget && d >= 40) {
+          // 继续调查噪音源
+        } else if (!dog.investigateTarget && dReal > DOG_SNIFF_RANGE * 1.5) {
+          dog.state = 'idle';
         }
         break;
       }
@@ -338,8 +432,9 @@ export function updateGame(state: GameStateData, input: InputManager, now: numbe
     dog.pos.y = dclamped.y;
   }
 
-  // 9. 清理floatMessages
+  // 9. 清理floatMessages和noises
   state.floatMessages = state.floatMessages.filter((m) => m.startTime + 1500 >= now);
+  state.noises = state.noises.filter((n) => n.startTime + n.duration >= now);
 
   // 10. 死亡判定
   if (player.hp <= 0) {

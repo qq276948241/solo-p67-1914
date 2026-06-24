@@ -52,6 +52,8 @@ export interface WildDog {
   stateUntil: number;
   hp: number;
   facing: Direction;
+  investigateTarget: Vec2 | null;
+  investigatePriorityUntil: number;
 }
 
 export interface DayNightState {
@@ -68,6 +70,16 @@ export interface FloatMessage {
   color: string;
 }
 
+export interface NoiseSource {
+  id: string;
+  pos: Vec2;
+  startTime: number;
+  duration: number;
+  maxRadius: number;
+  loudness: number;
+  type: 'loot' | 'build';
+}
+
 export interface GameStateData {
   scene: GameScene;
   player: PlayerState;
@@ -77,6 +89,7 @@ export interface GameStateData {
   dayNight: DayNightState;
   deathReason: string;
   floatMessages: FloatMessage[];
+  noises: NoiseSource[];
   lastTickTime: number;
   cameraShakeUntil: number;
 }

@@ -112,6 +112,8 @@ function makeInitialDogs(center: { x: number; y: number }): WildDog[] {
       stateUntil: 0,
       hp: 30,
       facing: 'down',
+      investigateTarget: null,
+      investigatePriorityUntil: 0,
     });
   }
   return arr;
@@ -136,6 +138,7 @@ function makeInitialState(now: number): GameStateData {
     dayNight: makeInitialDayNight(now),
     deathReason: '',
     floatMessages: [],
+    noises: [],
     lastTickTime: now,
     cameraShakeUntil: 0,
   };
@@ -162,6 +165,7 @@ export const useGameStore = create<GameStore>((set) => ({
         dogs: state.dogs.map((d) => ({ ...d, pos: { ...d.pos } })),
         dayNight: { ...state.dayNight },
         floatMessages: state.floatMessages.map((m) => ({ ...m, pos: { ...m.pos } })),
+        noises: state.noises.map((n) => ({ ...n, pos: { ...n.pos } })),
       };
       updater(copy);
       return copy;
